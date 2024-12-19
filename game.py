@@ -3,21 +3,21 @@ from constants import Sprite
 from PyQt5.QtGui import QVector2D
 import random
 
+
 class Game(object):
     def __init__(self):
-        self.ships = []  # Все корабли на поле
+        self.ships = []  # корабли на поле
         self.islands = []  # Острова на поле
         self.current_team = "green"  # Текущая команда
         self.selected_ship = None  # Выбранный корабль
 
     def start(self, api: GameAPI) -> None:
         api.addMessage("Игра началась!")
-
         # Расположение кораблей команд
         green_positions = [(0, 1), (0, 3), (0, 5)]
         red_positions = [(6, 1), (6, 3), (6, 5)]
 
-        # Создание зелёной команды
+        # Британия
         for i, position in enumerate(green_positions):
             ship = {
                 "team": "green",
@@ -31,7 +31,7 @@ class Game(object):
             }
             self.ships.append(ship)
 
-        # Создание красной команды
+        # Германия
         for i, position in enumerate(red_positions):
             ship = {
                 "team": "red",
@@ -45,7 +45,7 @@ class Game(object):
             }
             self.ships.append(ship)
 
-        # Распределение островов
+        # рандомное распределение островов
         for _ in range(15):
             x, y = random.randint(0, 6), random.randint(0, 6)
             if not self.is_occupied(QVector2D(x, y)):
@@ -56,7 +56,7 @@ class Game(object):
     def click(self, api: GameAPI, x: int, y: int) -> None:
         click_position = QVector2D(x, y)
 
-        # Проверка на выбор корабля
+        # Проверка на выбор корабля, проверка на выбор корабля нужного цвета в первый ход
         for ship in self.ships:
             if ship["position"] == click_position and ship["team"] == self.current_team:
                 if self.selected_ship == ship:
@@ -71,17 +71,14 @@ class Game(object):
                     api.addMessage(f"Выбран корабль {ship['name']} команды {self.current_team} на позиции ({x}, {y}).")
                 return
 
-        # Если корабль уже выбран, проверяем возможность перемещения
+        # проверяем возможность перемещения
         if self.selected_ship:
             distance = (self.selected_ship["position"] - click_position).length()
-            if distance <= self.selected_ship["speed"] and not self.is_island(click_position) and not self.is_occupied(click_position):
+            if distance <= self.selected_ship["speed"] and not self.is_island(click_position) and not self.is_occupied(
+                    click_position):
                 self.selected_ship["marker"].moveTo(x, y)
                 self.selected_ship["position"] = click_position
                 api.addMessage(f"Корабль {self.selected_ship['name']} перемещён на позицию ({x}, {y}).")
-
-                # Атака после перемещения
-                self.attack(api)
-
                 # Смена хода
                 self.end_turn(api)
             elif self.is_island(click_position):
@@ -90,6 +87,7 @@ class Game(object):
                 api.addMessage("Нельзя занять клетку, где уже находится другой корабль.")
             else:
                 api.addMessage("Слишком далеко для перемещения.")
+
 
     def is_occupied(self, position: QVector2D) -> bool:
         for ship in self.ships:
@@ -112,35 +110,32 @@ class Game(object):
                 return True
         return False
 
-    def attack(self, api: GameAPI) -> None:
+    def attack(self, api: GameAPI, attacking_team: str) -> None:
         for attacker in self.ships:
-            if attacker["team"] != self.current_team:
+            if attacker["team"] != attacking_team:
                 continue
-
             targets = []
             for defender in self.ships:
-                if defender["team"] == self.current_team:
+                if defender["team"] == attacking_team:
                     continue
-
                 # Логика атаки в зависимости от типа атакующего
                 distance = (attacker["position"] - defender["position"]).length()
                 path_clear = True
-
-                if attacker["type"] == "destroyer" and distance <= 1:
-                    # Эсминцы не могут стрелять через препятствия
+                if attacker["type"] == "destroyer" and distance <= 1.5:
+                    # Эсминцы могут атаковать наискосок и не могут стрелять через препятствия
                     for island in self.islands:
                         if self.is_between(attacker["position"], defender["position"], island["position"]):
                             path_clear = False
                             break
                     if path_clear:
                         targets.append(defender)
-
                 elif attacker["type"] in ["cruiser", "battleship"] and (
-                    attacker["position"].x() == defender["position"].x() or attacker["position"].y() == defender["position"].y()
-                ):
+                        attacker["position"].x() == defender["position"].x() or attacker["position"].y() == defender[
+                    "position"].y()):
                     # Проверяем вертикальную или горизонтальную атаку
                     for island in self.islands:
-                        if self.is_between(attacker["position"], defender["position"], island["position"]) and not self.is_low_island(island["position"]):
+                        if self.is_between(attacker["position"], defender["position"],
+                                           island["position"]) and not self.is_low_island(island["position"]):
                             path_clear = False
                             break
                     if path_clear:
@@ -155,18 +150,20 @@ class Game(object):
                         effective_damage //= 2  # Уменьшение урона для крейсеров и эсминцев
                     if target["type"] == "battleship" and effective_damage <= 10:
                         effective_damage = 0
-                        api.addMessage(f"Корабль {target['name']} команды {target['team']} полностью заблокировал урон от {attacker['name']}.")
+                        api.addMessage(
+                            f"Корабль {target['name']} команды {target['team']} полностью заблокировал урон от {attacker['name']}.")
                     else:
                         target["health"] -= effective_damage
-                        target["marker"].setHealth(target["health"] / [15, 30, 50][["destroyer", "cruiser", "battleship"].index(target["type"])] * 1.0)
+                        target["marker"].setHealth(target["health"] / [15, 30, 50][
+                            ["destroyer", "cruiser", "battleship"].index(target["type"])] * 1.0)
+                        api.addMessage(
+                            f"Корабль {target['name']} команды {target['team']} получил {effective_damage} урона от {attacker['name']}.")
 
-                        api.addMessage(f"Корабль {target['name']} команды {target['team']} получил {effective_damage} урона от {attacker['name']}.")
-
-                        # Удаление корабля, если здоровье <= 0
-                        if target["health"] <= 0:
-                            target["marker"].remove()
-                            self.ships.remove(target)
-                            api.addMessage(f"Корабль {target['name']} команды {target['team']} уничтожен.")
+                    # Удаление корабля, если здоровье <= 0
+                    if target["health"] <= 0:
+                        target["marker"].remove()
+                        self.ships.remove(target)
+                        api.addMessage(f"Корабль {target['name']} команды {target['team']} уничтожен.")
 
     def is_between(self, start: QVector2D, end: QVector2D, point: QVector2D) -> bool:
         if start.x() == end.x() == point.x() and min(start.y(), end.y()) < point.y() < max(start.y(), end.y()):
@@ -176,7 +173,12 @@ class Game(object):
         return False
 
     def end_turn(self, api: GameAPI) -> None:
-        self.current_team = "red" if self.current_team == "green" else "green"
+        # Сначала выполняем атаку команды, которая только что закончила ход
+        opposite_team = "red" if self.current_team == "green" else "green"
+        self.attack(api, opposite_team)
+
+        # Затем переключаем ход на другую команду
+        self.current_team = opposite_team
         api.addMessage(f"Ход команды {self.current_team}.")
 
         # Сброс выделения корабля
